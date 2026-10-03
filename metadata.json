@@ -1,0 +1,6 @@
+{
+  "name": "Cash Manager",
+  "description": "Gestor integral de finanzas y vida académica para estudiantes universitarios con control de gastos, presupuesto, métodos de pago, horarios y recordatorios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

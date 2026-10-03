@@ -55,7 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.Movimiento
+import com.example.data.DateFormats
+import com.example.data.model.MovimientoConMetodo
 import com.example.ui.components.CashManagerBottomBar
 import com.example.ui.components.CashManagerTopHeader
 import com.example.ui.theme.ForestBackground
@@ -85,9 +86,11 @@ fun HomeScreen(
     val saldoDisponible by viewModel.saldoDisponible.collectAsStateWithLifecycle()
     val porcentajeConsumido by viewModel.porcentajeConsumido.collectAsStateWithLifecycle()
     val recentMovimientos by viewModel.recentMovimientos.collectAsStateWithLifecycle()
+    val desgloseCuentas by viewModel.desgloseCuentas.collectAsStateWithLifecycle()
 
     var showAdjustBudgetDialog by remember { mutableStateOf(false) }
     var newBudgetLimitText by remember { mutableStateOf("") }
+    var showDesglose by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -100,7 +103,6 @@ fun HomeScreen(
         CashManagerTopHeader(
             title = "Cash Manager",
             subtitle = "Inicio",
-            avatarUrl = user?.avatarUrl,
             onAvatarClick = { viewModel.navigateTo(AppScreen.ACCOUNT) }
         )
 
@@ -121,7 +123,10 @@ fun HomeScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable {
-                        viewModel.showToast("Periodo activo: Mayo 2025")
+                        val p = presupuesto
+                        if (p != null) {
+                            viewModel.showToast(DateFormats.displayPeriodo(p.tipoPeriodo, p.fechaInicio, p.fechaFin))
+                        }
                     }
                 ) {
                     Icon(
@@ -132,7 +137,9 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Este mes (${presupuesto?.periodo ?: "Mayo"})",
+                        text = presupuesto?.let {
+                            DateFormats.displayPeriodo(it.tipoPeriodo, it.fechaInicio, it.fechaFin)
+                        } ?: "Sin presupuesto",
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = ForestOnSurfaceVariant,
                             fontWeight = FontWeight.SemiBold
@@ -227,7 +234,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Progress bar & limits
-                    val meta = presupuesto?.metaTotal ?: 500000.0
+                    val meta = presupuesto?.montoLimite ?: 0.0
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -264,6 +271,100 @@ fun HomeScreen(
                                 .clip(RoundedCornerShape(9999.dp))
                                 .background(ForestSecondaryFixed)
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Surface(
+                onClick = { showDesglose = !showDesglose },
+                shape = RoundedCornerShape(20.dp),
+                color = ForestSurfaceContainerLowest,
+                shadowElevation = 1.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("budget_breakdown_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Presupuesto",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = ForestOnSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                            Text(
+                                text = CashManagerViewModel.formatCurrency(presupuesto?.montoLimite ?: 0.0),
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = ForestOnSurface
+                                )
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (showDesglose) "Ocultar cuentas" else "Ver cuentas",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = ForestPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = ForestPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (showDesglose) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        if (desgloseCuentas.isEmpty()) {
+                            Text(
+                                text = "Aún no hay dinero repartido entre cuentas.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                desgloseCuentas.forEach { cuenta ->
+                                    Column {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = cuenta.nombre,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = ForestOnSurface
+                                                )
+                                            )
+                                            Text(
+                                                text = CashManagerViewModel.formatCurrency(cuenta.montoAsignado),
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ForestPrimary
+                                                )
+                                            )
+                                        }
+                                        Text(
+                                            text = "Disponible: ${CashManagerViewModel.formatCurrency(cuenta.disponible)}",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = ForestOnSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -308,7 +409,7 @@ fun HomeScreen(
 
                 Surface(
                     onClick = {
-                        newBudgetLimitText = (presupuesto?.metaTotal ?: 500000.0).toLong().toString()
+                        newBudgetLimitText = (presupuesto?.montoLimite ?: 0.0).toLong().toString()
                         showAdjustBudgetDialog = true
                     },
                     shape = RoundedCornerShape(9999.dp),
@@ -465,7 +566,7 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val amount = newBudgetLimitText.toDoubleOrNull() ?: 500000.0
+                        val amount = newBudgetLimitText.toDoubleOrNull() ?: 0.0
                         viewModel.updatePresupuestoLimit(amount)
                         showAdjustBudgetDialog = false
                     },
@@ -485,13 +586,14 @@ fun HomeScreen(
 
 @Composable
 fun MovementItemRow(
-    mov: Movimiento,
+    mov: MovimientoConMetodo,
     onDelete: (() -> Unit)? = null
 ) {
-    val icon = when (mov.categoriaNombre) {
-        "Alimentación" -> Icons.Default.Restaurant
-        "Academia", "Materiales" -> Icons.Default.AutoStories
-        "Transporte" -> Icons.Default.DirectionsSubway
+    val esGasto = mov.movimiento.tipo == "GASTO"
+    val icon = when {
+        mov.metodoNombre.contains("Nequi", ignoreCase = true) -> Icons.Default.AccountBalanceWallet
+        mov.metodoNombre.contains("Efectivo", ignoreCase = true) -> Icons.Default.Restaurant
+        mov.metodoNombre.contains("Nu", ignoreCase = true) -> Icons.Default.DirectionsSubway
         else -> Icons.Default.MoreHoriz
     }
 
@@ -530,7 +632,7 @@ fun MovementItemRow(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = mov.descripcion,
+                        text = mov.movimiento.nota?.ifBlank { null } ?: mov.movimiento.tipo,
                         style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = ForestOnSurface
@@ -541,7 +643,7 @@ fun MovementItemRow(
                     Spacer(modifier = Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = mov.fechaTexto,
+                            text = DateFormats.displayFechaHora(mov.movimiento.fecha, mov.movimiento.hora),
                             style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -553,7 +655,7 @@ fun MovementItemRow(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = mov.categoriaNombre,
+                            text = mov.metodoNombre,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = ForestPrimary,
                                 fontWeight = FontWeight.SemiBold
@@ -564,7 +666,7 @@ fun MovementItemRow(
             }
 
             Text(
-                text = "-${CashManagerViewModel.formatCurrency(mov.monto)}",
+                text = "${if (esGasto) "-" else "+"}${CashManagerViewModel.formatCurrency(mov.movimiento.monto)}",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = ForestOnSurface

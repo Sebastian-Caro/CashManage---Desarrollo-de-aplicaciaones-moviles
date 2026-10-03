@@ -88,6 +88,7 @@ fun LoginScreen(
     var nombre by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("estudiante@universidad.edu") }
     var password by remember { mutableStateOf("123456") }
+    var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var showForgotDialog by remember { mutableStateOf(false) }
 
@@ -411,7 +412,7 @@ fun LoginScreen(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
                                 if (isRegisterMode) {
-                                    viewModel.register(nombre, email, password) { _, msg ->
+                                    viewModel.register(nombre, email, password, confirmPassword) { _, msg ->
                                         if (msg != null) viewModel.showToast(msg)
                                     }
                                 } else {
@@ -431,6 +432,40 @@ fun LoginScreen(
                                 .fillMaxWidth()
                                 .testTag("input_student_password")
                         )
+                    }
+
+                    if (isRegisterMode) {
+                        Column {
+                            Text(
+                                text = "Confirmar contraseña",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ForestOnSurface
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = { confirmPassword = it },
+                                placeholder = { Text("Repite tu contraseña") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.LockReset, contentDescription = null, tint = ForestOnSurfaceVariant)
+                                },
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                                shape = RoundedCornerShape(9999.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = ForestSurfaceContainerLow,
+                                    unfocusedContainerColor = ForestSurfaceContainerLow,
+                                    focusedBorderColor = ForestPrimary,
+                                    unfocusedBorderColor = Color.Transparent
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("input_confirm_password")
+                            )
+                        }
                     }
 
                     if (!isRegisterMode) {
@@ -456,7 +491,7 @@ fun LoginScreen(
                     Button(
                         onClick = {
                             if (isRegisterMode) {
-                                viewModel.register(nombre, email, password) { _, msg ->
+                                viewModel.register(nombre, email, password, confirmPassword) { _, msg ->
                                     if (msg != null) viewModel.showToast(msg)
                                 }
                             } else {

@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.example.data.AppDatabase
@@ -38,7 +40,8 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: CashManagerViewModel by viewModels {
         val database = AppDatabase.getDatabase(applicationContext, lifecycleScope)
-        val repository = AppRepository(database.appDao())
+        val prefs = applicationContext.getSharedPreferences("cash_manager_session", Context.MODE_PRIVATE)
+        val repository = AppRepository(database.appDao(), prefs)
         CashManagerViewModelFactory(repository)
     }
 
@@ -67,12 +70,11 @@ class MainActivity : ComponentActivity() {
 fun CashManagerApp(viewModel: CashManagerViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    // Handle toast messages
     LaunchedEffect(toastMessage) {
         toastMessage?.let {
-            // Note: Since we are in Compose, we could also use Snackbar, but Toast is lightweight and works seamlessly
-            // We can clear it after consumption
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             viewModel.clearToast()
         }
     }

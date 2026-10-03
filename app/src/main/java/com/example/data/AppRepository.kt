@@ -1,19 +1,66 @@
 package com.example.data
 
+import android.content.SharedPreferences
 import com.example.data.dao.AppDao
-import com.example.data.model.Categoria
 import com.example.data.model.MetodoPago
 import com.example.data.model.Movimiento
-import com.example.data.model.Notificacion
+import com.example.data.model.MovimientoConMetodo
 import com.example.data.model.Presupuesto
+import com.example.data.model.PresupuestoMetodo
+import com.example.data.model.PresupuestoMetodoDetalle
 import com.example.data.model.Recordatorio
 import com.example.data.model.Usuario
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
-class AppRepository(private val dao: AppDao) {
+@OptIn(ExperimentalCoroutinesApi::class)
+class AppRepository(
+    private val dao: AppDao,
+    private val sessionPrefs: SharedPreferences
+) {
+    companion object {
+        private const val KEY_SESSION_USER_ID = "session_user_id"
+    }
 
-    // Usuario
-    val activeUsuario: Flow<Usuario?> = dao.getActiveUsuario()
+    private val _sessionUserId = MutableStateFlow(sessionPrefs.getLong(KEY_SESSION_USER_ID, 0L))
+    val sessionUserId: StateFlow<Long> = _sessionUserId.asStateFlow()
+
+    val activeUsuario: Flow<Usuario?> = _sessionUserId.flatMapLatest { id ->
+        if (id <= 0L) flowOf(null) else dao.getUsuarioById(id)
+    }
+
+    val allMetodosPago: Flow<List<MetodoPago>> = dao.getAllMetodosPago()
+
+    val activePresupuesto: Flow<Presupuesto?> = activeUsuario.flatMapLatest { user ->
+        val presupuestoId = user?.fkPresupuesto
+        if (presupuestoId == null || presupuestoId <= 0L) {
+            flowOf(null)
+        } else {
+            dao.getPresupuestoById(presupuestoId)
+        }
+    }
+
+    val desglosePresupuesto: Flow<List<PresupuestoMetodoDetalle>> = activeUsuario.flatMapLatest { user ->
+        val presupuestoId = user?.fkPresupuesto
+        if (presupuestoId == null || presupuestoId <= 0L) {
+            flowOf(emptyList())
+        } else {
+            dao.getDesglosePresupuesto(presupuestoId)
+        }
+    }
+
+    val movimientosUsuario: Flow<List<MovimientoConMetodo>> = _sessionUserId.flatMapLatest { id ->
+        if (id <= 0L) flowOf(emptyList()) else dao.getMovimientosByUsuario(id)
+    }
+
+    val recordatoriosUsuario: Flow<List<Recordatorio>> = _sessionUserId.flatMapLatest { id ->
+        if (id <= 0L) flowOf(emptyList()) else dao.getRecordatoriosByUsuario(id)
+    }
 
     suspend fun getUsuarioByCorreo(correo: String): Usuario? = dao.getUsuarioByCorreo(correo)
 
@@ -21,65 +68,38 @@ class AppRepository(private val dao: AppDao) {
 
     suspend fun updateUsuario(usuario: Usuario) = dao.updateUsuario(usuario)
 
-    suspend fun logout() = dao.logoutAllUsers()
-
-    suspend fun loginUser(userId: Long) {
-        dao.logoutAllUsers()
-        dao.setLoggedInUser(userId)
+    fun loginUser(userId: Long) {
+        sessionPrefs.edit().putLong(KEY_SESSION_USER_ID, userId).apply()
+        _sessionUserId.value = userId
     }
 
-    // Categorias
-    val allCategorias: Flow<List<Categoria>> = dao.getAllCategorias()
+    fun logout() {
+        sessionPrefs.edit().remove(KEY_SESSION_USER_ID).apply()
+        _sessionUserId.value = 0L
+    }
 
-    suspend fun insertCategoria(categoria: Categoria) = dao.insertCategoria(categoria)
-
-    suspend fun deleteCategoria(id: Long) = dao.deleteCategoria(id)
-
-    // Metodos de Pago
-    val allMetodosPago: Flow<List<MetodoPago>> = dao.getAllMetodosPago()
-
-    suspend fun insertMetodoPago(metodoPago: MetodoPago) = dao.insertMetodoPago(metodoPago)
+    suspend fun insertMetodoPago(metodoPago: MetodoPago): Long = dao.insertMetodoPago(metodoPago)
 
     suspend fun deleteMetodoPago(id: Long) = dao.deleteMetodoPago(id)
 
-    // Presupuesto
-    val activePresupuesto: Flow<Presupuesto?> = dao.getActivePresupuesto()
+    suspend fun insertPresupuesto(presupuesto: Presupuesto): Long = dao.insertPresupuesto(presupuesto)
 
-    suspend fun savePresupuesto(presupuesto: Presupuesto) {
-        if (presupuesto.id > 0) {
-            dao.updatePresupuesto(presupuesto)
-        } else {
-            dao.insertPresupuesto(presupuesto)
-        }
+    suspend fun updatePresupuesto(presupuesto: Presupuesto) = dao.updatePresupuesto(presupuesto)
+
+    suspend fun replaceDesglose(presupuestoId: Long, items: List<PresupuestoMetodo>) {
+        dao.clearDesglosePresupuesto(presupuestoId)
+        items.forEach { dao.insertPresupuestoMetodo(it) }
     }
 
-    // Movimientos
-    val allMovimientos: Flow<List<Movimiento>> = dao.getAllMovimientos()
-    val recentMovimientos: Flow<List<Movimiento>> = dao.getRecentMovimientos()
+    suspend fun insertPresupuestoMetodo(item: PresupuestoMetodo) = dao.insertPresupuestoMetodo(item)
 
     suspend fun insertMovimiento(movimiento: Movimiento): Long = dao.insertMovimiento(movimiento)
 
     suspend fun deleteMovimiento(id: Long) = dao.deleteMovimiento(id)
-
-    // Recordatorios / Clases
-    val allRecordatorios: Flow<List<Recordatorio>> = dao.getAllRecordatorios()
-
-    fun getRecordatoriosByDia(dia: String): Flow<List<Recordatorio>> = dao.getRecordatoriosByDia(dia)
 
     suspend fun insertRecordatorio(recordatorio: Recordatorio): Long = dao.insertRecordatorio(recordatorio)
 
     suspend fun updateRecordatorio(recordatorio: Recordatorio) = dao.updateRecordatorio(recordatorio)
 
     suspend fun deleteRecordatorio(id: Long) = dao.deleteRecordatorio(id)
-
-    // Notificaciones
-    val allNotificaciones: Flow<List<Notificacion>> = dao.getAllNotificaciones()
-
-    suspend fun insertNotificacion(notificacion: Notificacion) = dao.insertNotificacion(notificacion)
-
-    suspend fun markNotificacionAsRead(id: Long) = dao.markNotificacionAsRead(id)
-
-    suspend fun deleteNotificacion(id: Long) = dao.deleteNotificacion(id)
-
-    suspend fun clearAllNotificaciones() = dao.clearAllNotificaciones()
 }

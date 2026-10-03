@@ -1,4 +1,4 @@
-package com.example.ui.screens
+﻿package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,18 +18,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DirectionsSubway
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,14 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.Movimiento
 import com.example.ui.components.CashManagerBottomBar
 import com.example.ui.components.CashManagerTopHeader
 import com.example.ui.theme.ForestBackground
@@ -56,7 +47,6 @@ import com.example.ui.theme.ForestError
 import com.example.ui.theme.ForestOnPrimary
 import com.example.ui.theme.ForestOnSurface
 import com.example.ui.theme.ForestOnSurfaceVariant
-import com.example.ui.theme.ForestOutlineVariant
 import com.example.ui.theme.ForestPrimary
 import com.example.ui.theme.ForestPrimaryContainer
 import com.example.ui.theme.ForestSurfaceContainer
@@ -74,11 +64,14 @@ fun TransactionsScreen(
     val totalGastos by viewModel.totalGastos.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedCategoryFilter by remember { mutableStateOf<String?>(null) }
 
-    val filteredList = allMovimientos.filter {
-        (searchQuery.isBlank() || it.descripcion.contains(searchQuery, ignoreCase = true) || it.categoriaNombre.contains(searchQuery, ignoreCase = true) || it.metodoPagoNombre.contains(searchQuery, ignoreCase = true)) &&
-        (selectedCategoryFilter == null || it.categoriaNombre.equals(selectedCategoryFilter, ignoreCase = true))
+    val filteredList = allMovimientos.filter { item ->
+        val movimiento = item.movimiento
+        val nota = movimiento.nota.orEmpty()
+        searchQuery.isBlank() ||
+            nota.contains(searchQuery, ignoreCase = true) ||
+            movimiento.tipo.contains(searchQuery, ignoreCase = true) ||
+            item.metodoNombre.contains(searchQuery, ignoreCase = true)
     }
 
     Scaffold(
@@ -100,7 +93,7 @@ fun TransactionsScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Nuevo Gasto"
+                    contentDescription = "Nuevo gasto"
                 )
             }
         }
@@ -113,7 +106,7 @@ fun TransactionsScreen(
             CashManagerTopHeader(
                 title = "Cash Manager",
                 subtitle = "Movimientos",
-                avatarUrl = user?.avatarUrl,
+                avatarUrl = null,
                 showBackButton = true,
                 onBackClick = { viewModel.navigateBack() },
                 onAvatarClick = { viewModel.navigateTo(AppScreen.ACCOUNT) }
@@ -124,7 +117,6 @@ fun TransactionsScreen(
                     .fillMaxSize()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                // Header Total Summary
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = ForestSurfaceContainerLowest,
@@ -140,7 +132,7 @@ fun TransactionsScreen(
                     ) {
                         Column {
                             Text(
-                                text = "TOTAL GASTADO EN EL PERIODO",
+                                text = "TOTAL GASTADO",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     color = ForestOnSurfaceVariant,
                                     fontWeight = FontWeight.Bold
@@ -175,168 +167,94 @@ fun TransactionsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Buscar por nota, categoría o método...") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = ForestOnSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(9999.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = ForestSurfaceContainerLowest,
-                        unfocusedContainerColor = ForestSurfaceContainerLowest,
-                        focusedBorderColor = ForestPrimary,
-                        unfocusedBorderColor = Color.Transparent
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("input_search_transactions")
+                    placeholder = { Text("Buscar por nota o método") },
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // List of transactions
-                if (filteredList.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No se encontraron movimientos.",
-                            style = MaterialTheme.typography.bodyMedium.copy(color = ForestOnSurfaceVariant)
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(filteredList, key = { it.id }) { mov ->
-                            TransactionDetailedRow(
-                                mov = mov,
-                                onDelete = { viewModel.deleteMovimiento(mov.id) }
-                            )
-                        }
-                        item {
-                            Spacer(modifier = Modifier.height(60.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun TransactionDetailedRow(
-    mov: Movimiento,
-    onDelete: () -> Unit
-) {
-    val icon = when (mov.categoriaNombre) {
-        "Alimentación" -> Icons.Default.Restaurant
-        "Academia", "Materiales" -> Icons.Default.AutoStories
-        "Transporte" -> Icons.Default.DirectionsSubway
-        else -> Icons.Default.MoreHoriz
-    }
-
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = ForestSurfaceContainerLowest,
-        shadowElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(ForestSurfaceContainer),
-                    contentAlignment = Alignment.Center
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = ForestPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                    items(filteredList) { item ->
+                        val movimiento = item.movimiento
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = ForestSurfaceContainerLowest,
+                            shadowElevation = 1.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(ForestPrimaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ReceiptLong,
+                                            contentDescription = null,
+                                            tint = ForestPrimary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = mov.descripcion,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = ForestOnSurface
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = mov.fechaTexto,
-                            style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(4.dp)
-                                .clip(CircleShape)
-                                .background(ForestOutlineVariant)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "${mov.categoriaNombre} (${mov.metodoPagoNombre})",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = ForestPrimary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        )
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column {
+                                        Text(
+                                            text = movimiento.tipo,
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = ForestPrimary
+                                            )
+                                        )
+                                        Text(
+                                            text = movimiento.nota ?: "Sin nota",
+                                            style = MaterialTheme.typography.bodyMedium.copy(color = ForestOnSurface)
+                                        )
+                                        Text(
+                                            text = "${movimiento.fecha} • ${item.metodoNombre}",
+                                            style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
+                                        )
+                                    }
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = if (movimiento.tipo == "INGRESO") "+ ${CashManagerViewModel.formatCurrency(movimiento.monto)}" else "- ${CashManagerViewModel.formatCurrency(movimiento.monto)}",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (movimiento.tipo == "INGRESO") ForestPrimary else ForestError
+                                        )
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.deleteMovimiento(movimiento.pkMovimiento) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Eliminar movimiento",
+                                            tint = ForestError,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "-${CashManagerViewModel.formatCurrency(mov.monto)}",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = ForestOnSurface
-                    )
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Eliminar",
-                        tint = ForestError.copy(alpha = 0.7f),
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
             }
         }

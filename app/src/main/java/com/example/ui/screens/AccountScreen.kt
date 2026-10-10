@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +74,7 @@ import com.example.ui.theme.ForestSurfaceContainerLowest
 import com.example.ui.theme.ForestSurfaceVariant
 import com.example.ui.viewmodel.AppScreen
 import com.example.ui.viewmodel.CashManagerViewModel
+import com.example.utils.SemesterUtils
 
 @Composable
 fun AccountScreen(
@@ -88,8 +90,10 @@ fun AccountScreen(
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf(user?.nombre ?: "") }
     var editUniv by remember { mutableStateOf(user?.universidad ?: "") }
-    var editCiclo by remember { mutableStateOf(user?.ciclo ?: "") }
+    var editCiclo by remember { mutableStateOf(user?.ciclo ?: SemesterUtils.calculateSemester()) }
     var editCarrera by remember { mutableStateOf(user?.carrera ?: "") }
+    var editAvatarUrl by remember { mutableStateOf(user?.avatarUrl ?: "") }
+    var profileEditError by remember { mutableStateOf<String?>(null) }
 
     var showAddPaymentDialog by remember { mutableStateOf(false) }
     var newPaymentName by remember { mutableStateOf("") }
@@ -97,9 +101,6 @@ fun AccountScreen(
 
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
-
-    var showAdjustBudgetDialog by remember { mutableStateOf(false) }
-    var newBudgetLimitText by remember { mutableStateOf((presupuesto?.metaTotal ?: 500000.0).toLong().toString()) }
 
     val scrollState = rememberScrollState()
 
@@ -217,8 +218,10 @@ fun AccountScreen(
                         onClick = {
                             editName = user?.nombre ?: ""
                             editUniv = user?.universidad ?: ""
-                            editCiclo = user?.ciclo ?: ""
+                            editCiclo = user?.ciclo ?: SemesterUtils.calculateSemester()
                             editCarrera = user?.carrera ?: ""
+                            editAvatarUrl = user?.avatarUrl ?: ""
+                            profileEditError = null
                             showEditProfileDialog = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ForestSurfaceContainer),
@@ -255,19 +258,19 @@ fun AccountScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Tune,
+                                imageVector = Icons.Default.AccountBalanceWallet,
                                 contentDescription = null,
                                 tint = ForestPrimary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Límite de Presupuesto",
+                                text = "Presupuesto inicial",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = ForestOnSurface
@@ -275,29 +278,22 @@ fun AccountScreen(
                             )
                         }
 
-                        IconButton(onClick = {
-                            newBudgetLimitText = (presupuesto?.metaTotal ?: 500000.0).toLong().toString()
-                            showAdjustBudgetDialog = true
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Editar presupuesto",
-                                tint = ForestPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Meta actual: ${CashManagerViewModel.formatCurrency(presupuesto?.metaTotal ?: 500000.0)}",
+                        text = "Total inicial: ${CashManagerViewModel.formatCurrency(presupuesto?.metaTotal ?: 0.0)}",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = ForestPrimary
                         )
                     )
                     Text(
-                        text = "Alerta al superar el ${presupuesto?.alertaPorcentaje ?: 80}% del límite.",
+                        text = "Gastable (80%): ${CashManagerViewModel.formatCurrency((presupuesto?.metaTotal ?: 0.0) * 0.8)}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
+                    )
+                    Text(
+                        text = "Reserva protegida (20%): ${CashManagerViewModel.formatCurrency((presupuesto?.metaTotal ?: 0.0) * 0.2)}",
                         style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
                     )
                 }
@@ -374,13 +370,19 @@ fun AccountScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = metodo.nombre,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = ForestOnSurface
+                                Column {
+                                    Text(
+                                        text = metodo.nombre,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = ForestOnSurface
+                                        )
                                     )
-                                )
+                                    Text(
+                                        text = "Saldo: ${CashManagerViewModel.formatCurrency(metodo.saldoActual)}",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
+                                    )
+                                }
                             }
 
                             if (metodosPago.size > 1) {
@@ -598,8 +600,18 @@ fun AccountScreen(
 
     // Dialog: Edit Profile
     if (showEditProfileDialog) {
+        val presetAvatars = listOf(
+            "android.resource://com.example/drawable/profile_avatar_forest",
+            "android.resource://com.example/drawable/profile_avatar_sage",
+            "android.resource://com.example/drawable/profile_avatar_sky",
+            "android.resource://com.example/drawable/profile_avatar_rose"
+        )
+
         AlertDialog(
-            onDismissRequest = { showEditProfileDialog = false },
+            onDismissRequest = {
+                showEditProfileDialog = false
+                profileEditError = null
+            },
             title = {
                 Text(
                     text = "Editar Perfil Universitario",
@@ -607,26 +619,85 @@ fun AccountScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Foto de perfil",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = ForestOnSurfaceVariant
+                        )
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        presetAvatars.forEachIndexed { idx, url ->
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(if (editAvatarUrl == url) ForestPrimary else ForestSurfaceContainerLow)
+                                    .padding(2.dp)
+                                    .clickable {
+                                        editAvatarUrl = url
+                                        profileEditError = null
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = "Avatar $idx",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                )
+                            }
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            editAvatarUrl = ""
+                            profileEditError = null
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Quitar foto")
+                    }
+
                     OutlinedTextField(
                         value = editName,
-                        onValueChange = { editName = it },
+                        onValueChange = {
+                            editName = it
+                            profileEditError = null
+                        },
                         label = { Text("Nombre Completo") },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        isError = editName.isBlank(),
+                        modifier = Modifier.fillMaxWidth().testTag("profile_name_input")
                     )
                     OutlinedTextField(
                         value = editUniv,
-                        onValueChange = { editUniv = it },
+                        onValueChange = {
+                            editUniv = it
+                            profileEditError = null
+                        },
                         label = { Text("Universidad") },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        isError = editUniv.isBlank(),
+                        modifier = Modifier.fillMaxWidth().testTag("profile_university_input")
                     )
                     OutlinedTextField(
                         value = editCiclo,
-                        onValueChange = { editCiclo = it },
+                        onValueChange = {
+                            editCiclo = it
+                            profileEditError = null
+                        },
                         label = { Text("Semestre / Ciclo") },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
@@ -634,27 +705,57 @@ fun AccountScreen(
                     )
                     OutlinedTextField(
                         value = editCarrera,
-                        onValueChange = { editCarrera = it },
+                        onValueChange = {
+                            editCarrera = it
+                            profileEditError = null
+                        },
                         label = { Text("Carrera / Programa") },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    profileEditError?.let { error ->
+                        Text(
+                            text = error,
+                            color = ForestError,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.updateProfile(editName, editUniv, editCiclo, editCarrera)
-                        showEditProfileDialog = false
+                        viewModel.updateProfile(
+                            editName,
+                            editUniv,
+                            editCiclo,
+                            editCarrera,
+                            editAvatarUrl
+                        ) { success, message ->
+                            if (success) {
+                                showEditProfileDialog = false
+                                profileEditError = null
+                            } else {
+                                profileEditError = message
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary)
                 ) {
-                    Text("Guardar", color = ForestOnPrimary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Guardar",
+                        color = ForestOnPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.testTag("save_profile_button")
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEditProfileDialog = false }) {
+                TextButton(onClick = {
+                    showEditProfileDialog = false
+                    profileEditError = null
+                }) {
                     Text("Cancelar", color = ForestOnSurfaceVariant)
                 }
             }
@@ -746,50 +847,4 @@ fun AccountScreen(
         )
     }
 
-    // Dialog: Adjust Budget Limit
-    if (showAdjustBudgetDialog) {
-        AlertDialog(
-            onDismissRequest = { showAdjustBudgetDialog = false },
-            title = {
-                Text(
-                    text = "Ajustar Límite de Presupuesto",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Monto mensual para gastos:",
-                        style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
-                    )
-                    OutlinedTextField(
-                        value = newBudgetLimitText,
-                        onValueChange = { newBudgetLimitText = it },
-                        label = { Text("Monto límite ($)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = newBudgetLimitText.toDoubleOrNull() ?: 500000.0
-                        viewModel.updatePresupuestoLimit(amount)
-                        showAdjustBudgetDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary)
-                ) {
-                    Text("Guardar", color = ForestOnPrimary, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAdjustBudgetDialog = false }) {
-                    Text("Cancelar", color = ForestOnSurfaceVariant)
-                }
-            }
-        )
-    }
 }

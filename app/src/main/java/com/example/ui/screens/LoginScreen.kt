@@ -25,11 +25,14 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Visibility
@@ -64,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.ForestBackground
+import com.example.ui.theme.ForestError
 import com.example.ui.theme.ForestOnPrimary
 import com.example.ui.theme.ForestOnSurface
 import com.example.ui.theme.ForestOnSurfaceVariant
@@ -72,12 +76,12 @@ import com.example.ui.theme.ForestPrimaryContainer
 import com.example.ui.theme.ForestSecondary
 import com.example.ui.theme.ForestSecondaryContainer
 import com.example.ui.theme.ForestSecondaryFixed
-import com.example.ui.theme.ForestSurfaceContainer
 import com.example.ui.theme.ForestSurfaceContainerHigh
 import com.example.ui.theme.ForestSurfaceContainerLow
 import com.example.ui.theme.ForestSurfaceContainerLowest
 import com.example.ui.theme.ForestSurfaceTint
 import com.example.ui.viewmodel.CashManagerViewModel
+import com.example.utils.PasswordValidator
 
 @Composable
 fun LoginScreen(
@@ -86,10 +90,20 @@ fun LoginScreen(
 ) {
     var isRegisterMode by remember { mutableStateOf(false) }
     var nombre by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("estudiante@universidad.edu") }
-    var password by remember { mutableStateOf("123456") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var showForgotDialog by remember { mutableStateOf(false) }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    val passwordValidation = remember(password) { PasswordValidator.validate(password) }
+
+    fun resetForm() {
+        nombre = ""
+        email = ""
+        password = ""
+        authErrorMessage = null
+    }
 
     val scrollState = rememberScrollState()
 
@@ -220,7 +234,12 @@ fun LoginScreen(
                             .height(44.dp)
                             .clip(RoundedCornerShape(9999.dp))
                             .background(if (!isRegisterMode) ForestPrimary else Color.Transparent)
-                            .clickable { isRegisterMode = false }
+                            .clickable {
+                                if (isRegisterMode) {
+                                    isRegisterMode = false
+                                    resetForm()
+                                }
+                            }
                             .testTag("tab_login"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -248,7 +267,12 @@ fun LoginScreen(
                             .height(44.dp)
                             .clip(RoundedCornerShape(9999.dp))
                             .background(if (isRegisterMode) ForestPrimary else Color.Transparent)
-                            .clickable { isRegisterMode = true }
+                            .clickable {
+                                if (!isRegisterMode) {
+                                    isRegisterMode = true
+                                    resetForm()
+                                }
+                            }
                             .testTag("tab_register"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -295,7 +319,10 @@ fun LoginScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             OutlinedTextField(
                                 value = nombre,
-                                onValueChange = { nombre = it },
+                                onValueChange = {
+                                    nombre = it
+                                    authErrorMessage = null
+                                },
                                 placeholder = { Text("Ej. Valeria Montes") },
                                 leadingIcon = {
                                     Icon(Icons.Default.Badge, contentDescription = null, tint = ForestOnSurfaceVariant)
@@ -357,8 +384,11 @@ fun LoginScreen(
                         Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
                             value = email,
-                            onValueChange = { email = it },
-                            placeholder = { Text("estudiante@universidad.edu") },
+                            onValueChange = {
+                                email = it
+                                authErrorMessage = null
+                            },
+                            placeholder = { Text("Ej. estudiante@universidad.edu") },
                             leadingIcon = {
                                 Icon(Icons.Default.Email, contentDescription = null, tint = ForestOnSurfaceVariant)
                             },
@@ -392,7 +422,10 @@ fun LoginScreen(
                         Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
                             value = password,
-                            onValueChange = { password = it },
+                            onValueChange = {
+                                password = it
+                                authErrorMessage = null
+                            },
                             placeholder = { Text("••••••••") },
                             leadingIcon = {
                                 Icon(Icons.Default.Lock, contentDescription = null, tint = ForestOnSurfaceVariant)
@@ -410,13 +443,18 @@ fun LoginScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
+                                authErrorMessage = null
                                 if (isRegisterMode) {
-                                    viewModel.register(nombre, email, password) { _, msg ->
-                                        if (msg != null) viewModel.showToast(msg)
+                                    viewModel.register(nombre, email, password) { success, msg ->
+                                        if (!success && msg != null) {
+                                            authErrorMessage = msg
+                                        }
                                     }
                                 } else {
-                                    viewModel.login(email, password) { _, msg ->
-                                        if (msg != null) viewModel.showToast(msg)
+                                    viewModel.login(email, password) { success, msg ->
+                                        if (!success && msg != null) {
+                                            authErrorMessage = msg
+                                        }
                                     }
                                 }
                             }),
@@ -431,6 +469,63 @@ fun LoginScreen(
                                 .fillMaxWidth()
                                 .testTag("input_student_password")
                         )
+
+                        // Inline password strength rules in Register Mode
+                        if (isRegisterMode) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Requisitos de la contraseña:",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = ForestOnSurfaceVariant
+                                    )
+                                )
+
+                                PasswordRuleItem(
+                                    label = "Mínimo 8 caracteres",
+                                    isSatisfied = passwordValidation.hasMinLength
+                                )
+                                PasswordRuleItem(
+                                    label = "Al menos una letra mayúscula (A-Z)",
+                                    isSatisfied = passwordValidation.hasUppercase
+                                )
+                                PasswordRuleItem(
+                                    label = "Al menos una letra minúscula (a-z)",
+                                    isSatisfied = passwordValidation.hasLowercase
+                                )
+                            }
+                        }
+                    }
+
+                    // Display Authentication Error Banner if present
+                    authErrorMessage?.let { errorMsg ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(ForestError.copy(alpha = 0.12f))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = ForestError,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = errorMsg,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = ForestError,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                )
+                            }
+                        }
                     }
 
                     if (!isRegisterMode) {
@@ -455,13 +550,18 @@ fun LoginScreen(
                     // Primary Submit Button
                     Button(
                         onClick = {
+                            authErrorMessage = null
                             if (isRegisterMode) {
-                                viewModel.register(nombre, email, password) { _, msg ->
-                                    if (msg != null) viewModel.showToast(msg)
+                                viewModel.register(nombre, email, password) { success, msg ->
+                                    if (!success && msg != null) {
+                                        authErrorMessage = msg
+                                    }
                                 }
                             } else {
-                                viewModel.login(email, password) { _, msg ->
-                                    if (msg != null) viewModel.showToast(msg)
+                                viewModel.login(email, password) { success, msg ->
+                                    if (!success && msg != null) {
+                                        authErrorMessage = msg
+                                    }
                                 }
                             }
                         },
@@ -496,78 +596,6 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Divider "o continúa con"
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(ForestOnSurfaceVariant.copy(alpha = 0.2f))
-                )
-                Text(
-                    text = "o continúa con",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = ForestOnSurfaceVariant
-                    )
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(ForestOnSurfaceVariant.copy(alpha = 0.2f))
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Google Campus / Universitario Button
-            Surface(
-                onClick = { viewModel.quickGoogleLogin() },
-                color = ForestSurfaceContainerLowest,
-                shape = RoundedCornerShape(9999.dp),
-                shadowElevation = 1.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("btn_google_campus")
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(ForestSecondaryFixed),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "G",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = ForestPrimary
-                            )
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Google Campus / Universitario",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = ForestOnSurface
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
             // Trust badges (2 column grid)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -600,14 +628,14 @@ fun LoginScreen(
                         }
                         Column {
                             Text(
-                                text = "Cifrado Estudiantil",
+                                text = "Contraseña protegida",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = ForestOnSurface
                                 )
                             )
                             Text(
-                                text = "Datos 100% privados",
+                                text = "Verificación local",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontSize = 10.sp,
                                     color = ForestOnSurfaceVariant
@@ -688,7 +716,7 @@ fun LoginScreen(
             },
             text = {
                 Text(
-                    text = "Hemos enviado un enlace de restablecimiento seguro a tu correo institucional $email.",
+                    text = "La recuperación por correo aún no está disponible. Esta versión guarda las cuentas en el dispositivo y no puede enviar enlaces para restablecer la contraseña.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -697,6 +725,31 @@ fun LoginScreen(
                     Text("Entendido", color = ForestPrimary, fontWeight = FontWeight.Bold)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun PasswordRuleItem(
+    label: String,
+    isSatisfied: Boolean
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = if (isSatisfied) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (isSatisfied) ForestPrimary else ForestOnSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                color = if (isSatisfied) ForestPrimary else ForestOnSurfaceVariant
+            )
         )
     }
 }

@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,15 +84,24 @@ fun AddExpenseScreen(
     val user by viewModel.activeUsuario.collectAsStateWithLifecycle()
     val categorias by viewModel.allCategorias.collectAsStateWithLifecycle()
     val metodosPago by viewModel.allMetodosPago.collectAsStateWithLifecycle()
+    val saldoDisponible by viewModel.saldoDisponible.collectAsStateWithLifecycle()
 
     var amountText by remember { mutableStateOf("12500") }
     var selectedCategory by remember { mutableStateOf("Alimentación") }
-    var selectedPaymentMethod by remember { mutableStateOf("Digital") }
+    var selectedPaymentMethodId by remember { mutableStateOf<Long?>(null) }
     var noteText by remember { mutableStateOf("Café y sándwich con grupo de cálculo") }
     var dateTimeText by remember { mutableStateOf("Hoy, 2:15 PM") }
 
+    LaunchedEffect(metodosPago) {
+        if (metodosPago.none { it.id == selectedPaymentMethodId }) {
+            selectedPaymentMethodId = metodosPago.firstOrNull()?.id
+        }
+    }
+    val selectedPaymentMethod = metodosPago.firstOrNull { it.id == selectedPaymentMethodId }
+
     val scrollState = rememberScrollState()
     val categoryScrollState = rememberScrollState()
+    val paymentScrollState = rememberScrollState()
 
     Column(
         modifier = modifier
@@ -194,7 +204,7 @@ fun AddExpenseScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Presupuesto semanal restante: $ 48.200",
+                            text = "Disponible para gastar: ${CashManagerViewModel.formatCurrency(saldoDisponible)}",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = ForestOnSurfaceVariant
                             )
@@ -397,27 +407,27 @@ fun AddExpenseScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(paymentScrollState),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf("Efectivo", "Digital", "Débito").forEach { method ->
-                                val isSelected = method == selectedPaymentMethod
-                                val pIcon = when (method) {
-                                    "Efectivo" -> Icons.Default.Payments
-                                    "Digital" -> Icons.Default.AccountBalanceWallet
-                                    else -> Icons.Default.CreditCard
+                            metodosPago.forEach { method ->
+                                val isSelected = method.id == selectedPaymentMethodId
+                                val pIcon = when (method.tipo) {
+                                    "EFECTIVO" -> Icons.Default.Payments
+                                    "DEBITO" -> Icons.Default.CreditCard
+                                    else -> Icons.Default.AccountBalanceWallet
                                 }
 
                                 Surface(
-                                    onClick = { selectedPaymentMethod = method },
+                                    onClick = { selectedPaymentMethodId = method.id },
                                     shape = RoundedCornerShape(9999.dp),
                                     color = if (isSelected) ForestPrimaryContainer else ForestSurfaceContainer,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp)
+                                    modifier = Modifier.height(44.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxSize(),
+                                        modifier = Modifier.padding(horizontal = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.Center
                                     ) {
@@ -429,7 +439,7 @@ fun AddExpenseScreen(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = method,
+                                            text = method.nombre,
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = if (isSelected) ForestOnPrimary else ForestOnSurface
@@ -439,9 +449,15 @@ fun AddExpenseScreen(
                                 }
                             }
                         }
+                        selectedPaymentMethod?.let { method ->
+                            Text(
+                                text = "Saldo en ${method.nombre}: ${CashManagerViewModel.formatCurrency(method.saldoActual)}",
+                                style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant)
+                            )
+                        }
                     }
 
-                    // Friendly suggestion banner
+                    // Explain how the expense is accounted for.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -468,7 +484,7 @@ fun AddExpenseScreen(
                                 )
                             }
                             Text(
-                                text = "¡Vas bien! Mantienes el 74% de tu presupuesto de comida esta quincena.",
+                                text = "Este gasto se descontará de la fuente elegida y del límite global para gastos (80% del total inicial).",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = ForestOnSurfaceVariant,
                                     lineHeight = 16.sp
@@ -488,7 +504,8 @@ fun AddExpenseScreen(
                         viewModel.addGasto(
                             monto = amount,
                             categoria = selectedCategory,
-                            metodoPago = selectedPaymentMethod,
+                            metodoPago = selectedPaymentMethod?.nombre.orEmpty(),
+                            metodoPagoId = selectedPaymentMethodId,
                             nota = noteText,
                             onSuccess = {
                                 viewModel.navigateBack()

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.AppDao
 import com.example.data.model.Categoria
@@ -13,6 +14,8 @@ import com.example.data.model.Notificacion
 import com.example.data.model.Presupuesto
 import com.example.data.model.Recordatorio
 import com.example.data.model.Usuario
+import com.example.utils.PasswordHasher
+import com.example.utils.SemesterUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,7 +30,7 @@ import kotlinx.coroutines.launch
         Recordatorio::class,
         Notificacion::class
     ],
-    version = 1,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +38,92 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appDao(): AppDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val credentials = mutableListOf<Pair<Long, String>>()
+                db.query("SELECT id, contrasena FROM usuario").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        credentials += cursor.getLong(0) to cursor.getString(1)
+                    }
+                }
+                credentials.forEach { (userId, password) ->
+                    if (!PasswordHasher.isHashed(password)) {
+                        db.execSQL(
+                            "UPDATE usuario SET contrasena = ? WHERE id = ?",
+                            arrayOf<Any>(PasswordHasher.hash(password), userId)
+                        )
+                    }
+                }
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val ownerUserId = db.query(
+                    "SELECT id FROM usuario ORDER BY isLoggedIn DESC, id ASC LIMIT 1"
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+                }
+                listOf(
+                    "categorias",
+                    "metodos_pago",
+                    "presupuesto",
+                    "movimientos",
+                    "recordatorio",
+                    "notificaciones"
+                ).forEach { table ->
+                    db.execSQL("ALTER TABLE $table ADD COLUMN usuarioId INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("UPDATE $table SET usuarioId = ?", arrayOf<Any>(ownerUserId))
+                }
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE usuario SET avatarUrl = '' WHERE avatarUrl = ?",
+                    arrayOf<Any>(SEED_AVATAR_URL)
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE metodos_pago ADD COLUMN saldoActual REAL NOT NULL DEFAULT 0.0"
+                )
+                db.execSQL(
+                    "ALTER TABLE presupuesto ADD COLUMN fechaInicioMillis INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE presupuesto ADD COLUMN configurado INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE movimientos ADD COLUMN metodoPagoId INTEGER"
+                )
+                db.execSQL(
+                    """
+                    UPDATE movimientos
+                    SET metodoPagoId = (
+                        SELECT id FROM metodos_pago
+                        WHERE metodos_pago.usuarioId = movimientos.usuarioId
+                          AND metodos_pago.nombre = movimientos.metodoPagoNombre
+                        ORDER BY id ASC
+                        LIMIT 1
+                    )
+                    WHERE EXISTS (
+                        SELECT 1 FROM metodos_pago
+                        WHERE metodos_pago.usuarioId = movimientos.usuarioId
+                          AND metodos_pago.nombre = movimientos.metodoPagoNombre
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private const val SEED_AVATAR_URL =
+            "https://lh3.googleusercontent.com/aida-public/AB6AXuDR9NaLIiGeoKYdPj6iP1rjyIj2UEC7aBktw67SUU55TsH79ALjL2Osl7DKQhhauOSCyCJ06nTxBGc4HQTm7yQxc9ldIqDbs61ss9J1V9xmvld70No-0GgxyngxcLGbiyxuCiBu-BE02q08Dnk8pOnguav9aG233AyOproswTF6MmexYSS9uCMOJKFnafBop3taiPi2uPLoM_GxHUL_xxx3BUJ3oa5xNZefEawGBntzXmcbQgvJrZ8Q"
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -45,6 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "cash_manager_database"
                 )
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .addCallback(DatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
@@ -67,30 +157,30 @@ abstract class AppDatabase : RoomDatabase() {
 
         suspend fun populateInitialData(dao: AppDao) {
             // 1. Usuario inicial
-            dao.insertUsuario(
+            val seedUserId = dao.insertUsuario(
                 Usuario(
                     nombre = "Alejandro Morales",
                     correo = "estudiante@universidad.edu",
-                    contrasena = "123456",
+                    contrasenaHash = PasswordHasher.hash("Estudiante123"),
                     universidad = "Universidad Nacional",
-                    ciclo = "Semestre 2025-1",
+                    ciclo = SemesterUtils.calculateSemester(),
                     carrera = "Ingeniería de Sistemas",
-                    avatarUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuDR9NaLIiGeoKYdPj6iP1rjyIj2UEC7aBktw67SUU55TsH79ALjL2Osl7DKQhhauOSCyCJ06nTxBGc4HQTm7yQxc9ldIqDbs61ss9J1V9xmvld70No-0GgxyngxcLGbiyxuCiBu-BE02q08Dnk8pOnguav9aG233AyOproswTF6MmexYSS9uCMOJKFnafBop3taiPi2uPLoM_GxHUL_xxx3BUJ3oa5xNZefEawGBntzXmcbQgvJrZ8Q",
-                    isLoggedIn = true
+                    avatarUrl = "",
+                    isLoggedIn = false
                 )
             )
 
             // 2. Categorias iniciales
-            dao.insertCategoria(Categoria(nombre = "Alimentación", icono = "restaurant", colorHex = "#1E5C42"))
-            dao.insertCategoria(Categoria(nombre = "Transporte", icono = "directions_bus", colorHex = "#2E9B66"))
-            dao.insertCategoria(Categoria(nombre = "Academia", icono = "menu_book", colorHex = "#006D42"))
-            dao.insertCategoria(Categoria(nombre = "Ocio", icono = "sports_esports", colorHex = "#45554D"))
-            dao.insertCategoria(Categoria(nombre = "Otros", icono = "more_horiz", colorHex = "#707973"))
+            dao.insertCategoria(Categoria(nombre = "Alimentación", icono = "restaurant", colorHex = "#1E5C42", usuarioId = seedUserId))
+            dao.insertCategoria(Categoria(nombre = "Transporte", icono = "directions_bus", colorHex = "#2E9B66", usuarioId = seedUserId))
+            dao.insertCategoria(Categoria(nombre = "Academia", icono = "menu_book", colorHex = "#006D42", usuarioId = seedUserId))
+            dao.insertCategoria(Categoria(nombre = "Ocio", icono = "sports_esports", colorHex = "#45554D", usuarioId = seedUserId))
+            dao.insertCategoria(Categoria(nombre = "Otros", icono = "more_horiz", colorHex = "#707973", usuarioId = seedUserId))
 
             // 3. Métodos de pago iniciales
-            dao.insertMetodoPago(MetodoPago(nombre = "Efectivo", icono = "payments", tipo = "EFECTIVO"))
-            dao.insertMetodoPago(MetodoPago(nombre = "Digital", icono = "account_balance_wallet", tipo = "DIGITAL"))
-            dao.insertMetodoPago(MetodoPago(nombre = "Débito", icono = "credit_card", tipo = "DEBITO"))
+            dao.insertMetodoPago(MetodoPago(nombre = "Efectivo", icono = "payments", tipo = "EFECTIVO", usuarioId = seedUserId))
+            dao.insertMetodoPago(MetodoPago(nombre = "Digital", icono = "account_balance_wallet", tipo = "DIGITAL", usuarioId = seedUserId))
+            dao.insertMetodoPago(MetodoPago(nombre = "Débito", icono = "credit_card", tipo = "DEBITO", usuarioId = seedUserId))
 
             // 4. Presupuesto inicial ($500.000)
             dao.insertPresupuesto(
@@ -98,7 +188,8 @@ abstract class AppDatabase : RoomDatabase() {
                     periodo = "Mayo",
                     metaTotal = 500000.0,
                     alertaPorcentaje = 80,
-                    activo = true
+                    activo = true,
+                    usuarioId = seedUserId
                 )
             )
 
@@ -114,7 +205,8 @@ abstract class AppDatabase : RoomDatabase() {
                     fechaTexto = "Hoy, 1:30 PM",
                     categoriaNombre = "Alimentación",
                     metodoPagoNombre = "Digital",
-                    nota = "Almuerzo con compañeros de sistemas"
+                    nota = "Almuerzo con compañeros de sistemas",
+                    usuarioId = seedUserId
                 )
             )
             dao.insertMovimiento(
@@ -126,7 +218,8 @@ abstract class AppDatabase : RoomDatabase() {
                     fechaTexto = "Ayer",
                     categoriaNombre = "Academia",
                     metodoPagoNombre = "Efectivo",
-                    nota = "Guías de laboratorio de algoritmos"
+                    nota = "Guías de laboratorio de algoritmos",
+                    usuarioId = seedUserId
                 )
             )
             dao.insertMovimiento(
@@ -138,7 +231,8 @@ abstract class AppDatabase : RoomDatabase() {
                     fechaTexto = "18 May",
                     categoriaNombre = "Transporte",
                     metodoPagoNombre = "Débito",
-                    nota = "Recarga semanal de metro"
+                    nota = "Recarga semanal de metro",
+                    usuarioId = seedUserId
                 )
             )
             dao.insertMovimiento(
@@ -150,7 +244,8 @@ abstract class AppDatabase : RoomDatabase() {
                     fechaTexto = "15 May",
                     categoriaNombre = "Academia",
                     metodoPagoNombre = "Débito",
-                    nota = "Material semestral de cálculo y física"
+                    nota = "Material semestral de cálculo y física",
+                    usuarioId = seedUserId
                 )
             )
 
@@ -168,7 +263,8 @@ abstract class AppDatabase : RoomDatabase() {
                     facultad = "Ingeniería",
                     modalidad = "Teórica",
                     piso = "Piso 3",
-                    notificarMinutosAntes = 15
+                    notificarMinutosAntes = 15,
+                    usuarioId = seedUserId
                 )
             )
             dao.insertRecordatorio(
@@ -184,7 +280,8 @@ abstract class AppDatabase : RoomDatabase() {
                     facultad = "Sistemas",
                     modalidad = "Práctica",
                     piso = "Piso 1",
-                    notificarMinutosAntes = 15
+                    notificarMinutosAntes = 15,
+                    usuarioId = seedUserId
                 )
             )
             dao.insertRecordatorio(
@@ -200,7 +297,8 @@ abstract class AppDatabase : RoomDatabase() {
                     facultad = "General",
                     modalidad = "Teórica",
                     piso = "Piso 2",
-                    notificarMinutosAntes = 15
+                    notificarMinutosAntes = 15,
+                    usuarioId = seedUserId
                 )
             )
             dao.insertRecordatorio(
@@ -216,7 +314,8 @@ abstract class AppDatabase : RoomDatabase() {
                     facultad = "Sistemas",
                     modalidad = "Teórica",
                     piso = "Piso 2",
-                    notificarMinutosAntes = 15
+                    notificarMinutosAntes = 15,
+                    usuarioId = seedUserId
                 )
             )
 
@@ -226,7 +325,8 @@ abstract class AppDatabase : RoomDatabase() {
                     titulo = "Entrega pendiente",
                     mensaje = "Tienes una entrega de Economía Aplicada hoy a las 18:00 hrs.",
                     fechaTexto = "Hoy, 12:00 PM",
-                    tipo = "ACADEMICA"
+                    tipo = "ACADEMICA",
+                    usuarioId = seedUserId
                 )
             )
             dao.insertNotificacion(
@@ -234,7 +334,8 @@ abstract class AppDatabase : RoomDatabase() {
                     titulo = "Control de Presupuesto",
                     mensaje = "¡Vas bien! Mantienes el 74% de tu presupuesto de comida esta quincena.",
                     fechaTexto = "Hoy, 9:00 AM",
-                    tipo = "FINANCIERA"
+                    tipo = "FINANCIERA",
+                    usuarioId = seedUserId
                 )
             )
             dao.insertNotificacion(
@@ -242,7 +343,8 @@ abstract class AppDatabase : RoomDatabase() {
                     titulo = "Próxima Clase",
                     mensaje = "Cálculo Multivariable en 35 min en Aula 304.",
                     fechaTexto = "Hoy, 9:25 AM",
-                    tipo = "ACADEMICA"
+                    tipo = "ACADEMICA",
+                    usuarioId = seedUserId
                 )
             )
         }

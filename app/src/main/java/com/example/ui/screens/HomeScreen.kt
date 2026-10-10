@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.DirectionsSubway
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,8 +37,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,9 +84,30 @@ fun HomeScreen(
     val saldoDisponible by viewModel.saldoDisponible.collectAsStateWithLifecycle()
     val porcentajeConsumido by viewModel.porcentajeConsumido.collectAsStateWithLifecycle()
     val recentMovimientos by viewModel.recentMovimientos.collectAsStateWithLifecycle()
+    val metodosPago by viewModel.allMetodosPago.collectAsStateWithLifecycle()
 
-    var showAdjustBudgetDialog by remember { mutableStateOf(false) }
-    var newBudgetLimitText by remember { mutableStateOf("") }
+    var showInitialBudgetDialog by remember { mutableStateOf(false) }
+    var initialBudgetError by remember { mutableStateOf<String?>(null) }
+    var newSourceName by remember { mutableStateOf("") }
+    var pendingSourceName by remember { mutableStateOf<String?>(null) }
+    var initialBudgetSaving by remember { mutableStateOf(false) }
+    val initialBalances = remember { mutableStateMapOf<Long, String>() }
+
+    LaunchedEffect(metodosPago) {
+        metodosPago.forEach {
+            if (it.id !in initialBalances) initialBalances[it.id] = "0"
+        }
+        initialBalances.keys.toList().filter { id -> metodosPago.none { it.id == id } }
+            .forEach(initialBalances::remove)
+        pendingSourceName?.let { pendingName ->
+            if (metodosPago.any { it.nombre.equals(pendingName, ignoreCase = true) }) {
+                pendingSourceName = null
+            }
+        }
+    }
+    LaunchedEffect(presupuesto?.configurado) {
+        showInitialBudgetDialog = presupuesto != null && !presupuesto!!.configurado
+    }
 
     val scrollState = rememberScrollState()
 
@@ -110,7 +130,7 @@ fun HomeScreen(
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            // Period selector bar
+            // Budget status
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -118,31 +138,20 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        viewModel.showToast("Periodo activo: Mayo 2025")
-                    }
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.CalendarToday,
+                        imageVector = Icons.Default.AccountBalanceWallet,
                         contentDescription = null,
                         tint = ForestOnSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Este mes (${presupuesto?.periodo ?: "Mayo"})",
+                        text = "Presupuesto inicial",
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = ForestOnSurfaceVariant,
                             fontWeight = FontWeight.SemiBold
                         )
-                    )
-                    Icon(
-                        imageVector = Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = ForestOnSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
                     )
                 }
 
@@ -161,7 +170,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Al día",
+                            text = "Manual",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = ForestOnSurfaceVariant,
                                 fontWeight = FontWeight.Medium
@@ -189,7 +198,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SALDO DISPONIBLE DEL MES",
+                            text = "DINERO DISPONIBLE PARA GASTAR",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = ForestOnPrimaryContainer,
                                 fontWeight = FontWeight.Bold,
@@ -227,7 +236,8 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Progress bar & limits
-                    val meta = presupuesto?.metaTotal ?: 500000.0
+                    val totalInicial = presupuesto?.metaTotal ?: 0.0
+                    val limiteGastable = if (presupuesto?.configurado == true) totalInicial * 0.8 else 0.0
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -241,10 +251,38 @@ fun HomeScreen(
                             )
                         )
                         Text(
-                            text = "Meta: ${CashManagerViewModel.formatCurrency(meta)}",
+                            text = "Límite gastable: ${CashManagerViewModel.formatCurrency(limiteGastable)}",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = ForestOnPrimaryContainer
                             )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Total inicial",
+                            style = MaterialTheme.typography.labelSmall.copy(color = ForestOnPrimaryContainer)
+                        )
+                        Text(
+                            text = CashManagerViewModel.formatCurrency(totalInicial),
+                            style = MaterialTheme.typography.labelSmall.copy(color = ForestOnPrimaryContainer)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Reserva protegida (20%)",
+                            style = MaterialTheme.typography.labelSmall.copy(color = ForestOnPrimaryContainer)
+                        )
+                        Text(
+                            text = CashManagerViewModel.formatCurrency(totalInicial * 0.2),
+                            style = MaterialTheme.typography.labelSmall.copy(color = ForestOnPrimaryContainer)
                         )
                     }
 
@@ -259,7 +297,7 @@ fun HomeScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth((porcentajeConsumido / 100f).coerceIn(0.01f, 1f))
+                                .fillMaxWidth((porcentajeConsumido / 100f).coerceIn(0f, 1f))
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(9999.dp))
                                 .background(ForestSecondaryFixed)
@@ -270,7 +308,7 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Quick Actions: [ Registrar gasto ] [ Ajustar límite ]
+            // Quick action
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -280,7 +318,7 @@ fun HomeScreen(
                     shape = RoundedCornerShape(9999.dp),
                     color = ForestSurfaceContainer,
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .height(44.dp)
                         .testTag("btn_quick_register_expense")
                 ) {
@@ -306,39 +344,6 @@ fun HomeScreen(
                     }
                 }
 
-                Surface(
-                    onClick = {
-                        newBudgetLimitText = (presupuesto?.metaTotal ?: 500000.0).toLong().toString()
-                        showAdjustBudgetDialog = true
-                    },
-                    shape = RoundedCornerShape(9999.dp),
-                    color = ForestSurfaceContainer,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .testTag("btn_adjust_limit")
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = null,
-                            tint = ForestPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Ajustar límite",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = ForestOnSurface
-                            )
-                        )
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -380,7 +385,7 @@ fun HomeScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No hay movimientos registrados este mes.",
+                        text = "Aún no hay movimientos registrados.",
                         style = MaterialTheme.typography.bodyMedium.copy(color = ForestOnSurfaceVariant)
                     )
                 }
@@ -434,49 +439,124 @@ fun HomeScreen(
         )
     }
 
-    if (showAdjustBudgetDialog) {
+    if (showInitialBudgetDialog) {
         AlertDialog(
-            onDismissRequest = { showAdjustBudgetDialog = false },
+            onDismissRequest = {},
             title = {
                 Text(
-                    text = "Ajustar Límite de Presupuesto",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    text = "Organicemos tu presupuesto",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(
-                        text = "Define tu meta mensual para gastos universitarios (sin tocar tus ahorros):",
+                        text = "Ingresa cuánto dinero tienes actualmente en cada fuente. El 80% quedará disponible para gastos y el 20% se reservará.",
                         style = MaterialTheme.typography.bodyMedium.copy(color = ForestOnSurfaceVariant)
                     )
-                    OutlinedTextField(
-                        value = newBudgetLimitText,
-                        onValueChange = { newBudgetLimitText = it },
-                        label = { Text("Monto límite ($)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_new_budget_limit")
+                    metodosPago.forEach { metodo ->
+                        OutlinedTextField(
+                            value = initialBalances[metodo.id].orEmpty(),
+                            onValueChange = { input ->
+                                if (input.all(Char::isDigit)) initialBalances[metodo.id] = input
+                            },
+                            label = { Text(metodo.nombre) },
+                            prefix = { Text("$") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("input_initial_balance_${metodo.id}")
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newSourceName,
+                            onValueChange = { newSourceName = it },
+                            label = { Text("Otra fuente (ej. Nequi)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                val name = newSourceName.trim()
+                                if (metodosPago.any { it.nombre.equals(name, ignoreCase = true) }) {
+                                    initialBudgetError = "Ya existe una fuente con ese nombre."
+                                } else if (name.isNotEmpty() && pendingSourceName == null) {
+                                    initialBudgetError = null
+                                    pendingSourceName = name
+                                    viewModel.addPaymentMethod(name)
+                                    newSourceName = ""
+                                }
+                            },
+                            enabled = newSourceName.isNotBlank() &&
+                                !initialBudgetSaving &&
+                                pendingSourceName == null
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Text("Agregar")
+                        }
+                    }
+                    val totalIngresado = metodosPago.sumOf {
+                        initialBalances[it.id]?.toDoubleOrNull() ?: 0.0
+                    }
+                    Text(
+                        text = "Total: ${CashManagerViewModel.formatCurrency(totalIngresado)} · " +
+                            "Para gastar (80%): ${CashManagerViewModel.formatCurrency(totalIngresado * 0.8)} · " +
+                            "Reserva: ${CashManagerViewModel.formatCurrency(totalIngresado * 0.2)}",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = ForestPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     )
+                    initialBudgetError?.let {
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val amount = newBudgetLimitText.toDoubleOrNull() ?: 500000.0
-                        viewModel.updatePresupuestoLimit(amount)
-                        showAdjustBudgetDialog = false
+                        val balances = metodosPago.associate { metodo ->
+                            metodo.id to (initialBalances[metodo.id]?.toDoubleOrNull() ?: -1.0)
+                        }
+                        if (balances.values.any { it < 0.0 }) {
+                            initialBudgetError = "Ingresa un saldo válido para cada fuente."
+                            return@Button
+                        }
+                        initialBudgetSaving = true
+                        viewModel.configureInitialBudget(balances) { success, message ->
+                            initialBudgetSaving = false
+                            if (success) {
+                                showInitialBudgetDialog = false
+                            } else {
+                                initialBudgetError = message
+                            }
+                        }
                     },
+                    enabled = !initialBudgetSaving && pendingSourceName == null && metodosPago.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary)
                 ) {
-                    Text("Guardar", color = ForestOnPrimary, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAdjustBudgetDialog = false }) {
-                    Text("Cancelar", color = ForestOnSurfaceVariant)
+                    Text(
+                        if (initialBudgetSaving) "Guardando..." else "Guardar presupuesto",
+                        color = ForestOnPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         )

@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -9,12 +10,13 @@ data class Usuario(
     val id: Long = 0,
     val nombre: String,
     val correo: String,
-    val contrasena: String,
+    @ColumnInfo(name = "contrasena")
+    val contrasenaHash: String,
     val universidad: String = "Universidad Nacional",
     val ciclo: String = "Semestre 2025-1",
     val carrera: String = "Ingeniería de Sistemas",
-    val avatarUrl: String = "https://lh3.googleusercontent.com/aida-public/AB6AXuDR9NaLIiGeoKYdPj6iP1rjyIj2UEC7aBktw67SUU55TsH79ALjL2Osl7DKQhhauOSCyCJ06nTxBGc4HQTm7yQxc9ldIqDbs61ss9J1V9xmvld70No-0GgxyngxcLGbiyxuCiBu-BE02q08Dnk8pOnguav9aG233AyOproswTF6MmexYSS9uCMOJKFnafBop3taiPi2uPLoM_GxHUL_xxx3BUJ3oa5xNZefEawGBntzXmcbQgvJrZ8Q",
-    val isLoggedIn: Boolean = true
+    val avatarUrl: String = "",
+    val isLoggedIn: Boolean = false
 )
 
 @Entity(tableName = "categorias")
@@ -24,7 +26,9 @@ data class Categoria(
     val nombre: String,
     val icono: String, // e.g., "restaurant", "directions_bus", "menu_book", "sports_esports", "more_horiz"
     val colorHex: String = "#1E5C42",
-    val tipo: String = "GASTO" // "GASTO" o "INGRESO"
+    val tipo: String = "GASTO", // "GASTO" o "INGRESO"
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )
 
 @Entity(tableName = "metodos_pago")
@@ -33,7 +37,11 @@ data class MetodoPago(
     val id: Long = 0,
     val nombre: String, // "Efectivo", "Digital (Nequi/Daviplata)", "Débito", "Tarjeta Crédito"
     val icono: String, // "payments", "account_balance_wallet", "credit_card"
-    val tipo: String = "DIGITAL" // "EFECTIVO", "DIGITAL", "DEBITO"
+    val tipo: String = "DIGITAL", // "EFECTIVO", "DIGITAL", "DEBITO"
+    @ColumnInfo(defaultValue = "0.0")
+    val saldoActual: Double = 0.0,
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )
 
 @Entity(tableName = "presupuesto")
@@ -42,8 +50,14 @@ data class Presupuesto(
     val id: Long = 0,
     val periodo: String = "Mayo", // e.g., "Este mes (Mayo)"
     val metaTotal: Double = 500000.0,
+    @ColumnInfo(defaultValue = "0")
+    val fechaInicioMillis: Long = 0,
+    @ColumnInfo(defaultValue = "0")
+    val configurado: Boolean = false,
     val alertaPorcentaje: Int = 80,
-    val activo: Boolean = true
+    val activo: Boolean = true,
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )
 
 @Entity(tableName = "movimientos")
@@ -57,7 +71,10 @@ data class Movimiento(
     val fechaTexto: String, // "Hoy, 1:30 PM", "Ayer", "18 May"
     val categoriaNombre: String,
     val metodoPagoNombre: String,
-    val nota: String = ""
+    val metodoPagoId: Long? = null,
+    val nota: String = "",
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )
 
 @Entity(tableName = "recordatorio")
@@ -76,7 +93,9 @@ data class Recordatorio(
     val modalidad: String = "Teórica", // "Teórica", "Práctica", "Laboratorio", "Entrega"
     val notificarMinutosAntes: Int = 15,
     val piso: String = "Piso 3",
-    val activo: Boolean = true
+    val activo: Boolean = true,
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )
 
 @Entity(tableName = "notificaciones")
@@ -88,5 +107,7 @@ data class Notificacion(
     val fechaTexto: String = "Hoy",
     val fechaTimestamp: Long = System.currentTimeMillis(),
     val leida: Boolean = false,
-    val tipo: String = "ACADEMICA" // "ACADEMICA", "FINANCIERA", "SISTEMA"
+    val tipo: String = "ACADEMICA", // "ACADEMICA", "FINANCIERA", "SISTEMA"
+    @ColumnInfo(defaultValue = "0")
+    val usuarioId: Long
 )

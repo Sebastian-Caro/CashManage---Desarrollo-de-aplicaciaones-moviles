@@ -1,5 +1,13 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -38,12 +46,14 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -52,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.example.data.model.Recordatorio
 import com.example.ui.components.CashManagerBottomBar
 import com.example.ui.components.CashManagerTopHeader
@@ -84,6 +96,9 @@ import com.example.ui.theme.ForestSurfaceContainerLowest
 import com.example.ui.theme.ForestSurfaceVariant
 import com.example.ui.viewmodel.AppScreen
 import com.example.ui.viewmodel.CashManagerViewModel
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 @Composable
 fun AgendaScreen(
@@ -94,11 +109,18 @@ fun AgendaScreen(
     val recordatorios by viewModel.allRecordatorios.collectAsStateWithLifecycle()
     val selectedDay by viewModel.selectedDay.collectAsStateWithLifecycle()
     val currentTab by viewModel.agendaTab.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) viewModel.showToast("Activa las notificaciones para recibir avisos de tu agenda.")
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var showAddDrawer by remember { mutableStateOf(false) }
+    var editingClass by remember { mutableStateOf<Recordatorio?>(null) }
+    var taggingClass by remember { mutableStateOf<Recordatorio?>(null) }
 
-    // Form states for new class
     var newClassName by remember { mutableStateOf("") }
     var newClassDay by remember { mutableStateOf(selectedDay) }
     var newClassAula by remember { mutableStateOf("") }
@@ -107,27 +129,62 @@ fun AgendaScreen(
     var newClassProf by remember { mutableStateOf("") }
     var newClassFacultad by remember { mutableStateOf("Ingeniería") }
     var newClassModalidad by remember { mutableStateOf("Teórica") }
+    var newClassMinutesBefore by remember { mutableStateOf("15") }
+
+    val beginEditingClass: (Recordatorio) -> Unit = { clase ->
+        editingClass = clase
+        newClassName = clase.titulo
+        newClassDay = clase.diaSemana
+        newClassAula = clase.aula
+        newClassStart = clase.horaInicio
+        newClassEnd = clase.horaFin
+        newClassProf = clase.grupoOProfesor
+        newClassFacultad = clase.facultad
+        newClassModalidad = clase.modalidad
+        newClassMinutesBefore = clase.notificarMinutosAntes.toString()
+        showAddDrawer = true
+    }
+
+    val requestNotificationPermission = {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val scrollState = rememberScrollState()
-    val daysList = listOf(
-        Pair("Lun", "17"),
-        Pair("Mar", "18"),
-        Pair("Mié", "19"),
-        Pair("Jue", "20"),
-        Pair("Vie", "21"),
-        Pair("Sáb", "22")
-    )
-
+    val shortDayNames = listOf("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom")
     val dayNameMap = mapOf(
         "Lun" to "Lunes",
         "Mar" to "Martes",
         "Mié" to "Miércoles",
         "Jue" to "Jueves",
         "Vie" to "Viernes",
-        "Sáb" to "Sábado"
+        "Sáb" to "Sábado",
+        "Dom" to "Domingo"
+    )
+    val weekStart = remember {
+        Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -((get(Calendar.DAY_OF_WEEK) + 5) % 7))
+        }
+    }
+    val weekDates = shortDayNames.mapIndexed { index, _ ->
+        (weekStart.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, index) }
+    }
+    val daysList = shortDayNames.mapIndexed { index, shortDay ->
+        Triple(shortDay, weekDates[index].get(Calendar.DAY_OF_MONTH).toString(), dayNameMap.getValue(shortDay))
+    }
+    val weekLabel = "SEMANA ${weekDates.first().get(Calendar.DAY_OF_MONTH)}–${weekDates.last().get(Calendar.DAY_OF_MONTH)} • " +
+        SimpleDateFormat("MMMM", Locale.forLanguageTag("es-CO"))
+            .format(weekDates.first().time)
+            .uppercase(Locale.forLanguageTag("es-CO"))
+    val todayName = dayNameMap.getValue(
+        shortDayNames[Calendar.getInstance().get(Calendar.DAY_OF_WEEK).let { (it + 5) % 7 }]
     )
 
-    // Filtered classes for current day
     val dayClasses = recordatorios.filter {
         (it.diaSemana.equals(selectedDay, ignoreCase = true) || it.diaSemana.startsWith(selectedDay.take(3), ignoreCase = true)) &&
         (searchQuery.isBlank() || it.titulo.contains(searchQuery, ignoreCase = true) || it.aula.contains(searchQuery, ignoreCase = true) || it.grupoOProfesor.contains(searchQuery, ignoreCase = true))
@@ -327,14 +384,14 @@ fun AgendaScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "SEMANA 8 • MARZO",
+                        text = weekLabel,
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = ForestOnSurfaceVariant,
                             letterSpacing = 1.sp
                         )
                     )
                     Text(
-                        text = "Hoy es Martes",
+                        text = "Hoy es $todayName",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = ForestPrimary,
                             fontWeight = FontWeight.Bold
@@ -348,8 +405,7 @@ fun AgendaScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    daysList.forEach { (shortDay, dayNum) ->
-                        val fullName = dayNameMap[shortDay] ?: "Martes"
+                    daysList.forEach { (shortDay, dayNum, fullName) ->
                         val isSelected = selectedDay.equals(fullName, ignoreCase = true) || selectedDay.startsWith(shortDay, ignoreCase = true)
 
                         Surface(
@@ -358,7 +414,7 @@ fun AgendaScreen(
                             color = if (isSelected) ForestPrimaryContainer else ForestSurfaceContainerLowest,
                             shadowElevation = if (isSelected) 3.dp else 1.dp,
                             modifier = Modifier
-                                .width(50.dp)
+                                .weight(1f)
                                 .height(64.dp)
                                 .testTag("day_selector_$shortDay")
                         ) {
@@ -392,7 +448,7 @@ fun AgendaScreen(
                 }
             }
 
-            // Hero Card: Próxima clase destacada (One-Hero Rule)
+            // Hero card for the first class on the selected day.
             if (heroClass != null) {
                 Box(
                     modifier = Modifier
@@ -423,7 +479,7 @@ fun AgendaScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Próxima clase en 35 min",
+                                        text = "Clase destacada",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = ForestOnPrimary,
                                             fontWeight = FontWeight.Bold
@@ -434,7 +490,7 @@ fun AgendaScreen(
 
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Surface(
-                                    onClick = { viewModel.showToast("Editar materia") },
+                                    onClick = { beginEditingClass(heroClass) },
                                     shape = CircleShape,
                                     color = ForestSurfaceContainerLowest,
                                     modifier = Modifier.size(34.dp)
@@ -449,7 +505,7 @@ fun AgendaScreen(
                                     }
                                 }
                                 Surface(
-                                    onClick = { viewModel.showToast("Etiquetado rápido") },
+                                    onClick = { taggingClass = heroClass },
                                     shape = CircleShape,
                                     color = ForestSurfaceContainerLowest,
                                     modifier = Modifier.size(34.dp)
@@ -551,7 +607,11 @@ fun AgendaScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Notificación 15 min antes",
+                                        text = if (heroClass.notificarMinutosAntes == 0) {
+                                            "Aviso al iniciar"
+                                        } else {
+                                            "Aviso ${heroClass.notificarMinutosAntes} min antes"
+                                        },
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = ForestOnSurface,
                                             fontWeight = FontWeight.SemiBold
@@ -562,10 +622,26 @@ fun AgendaScreen(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { viewModel.showToast("Ruta a Aula 304 (Piso 3)") }
+                                modifier = Modifier.clickable {
+                                    val location = listOf(heroClass.aula, heroClass.facultad)
+                                        .filter(String::isNotBlank)
+                                        .joinToString(", ")
+                                    try {
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse(
+                                                    "https://www.google.com/maps/search/?api=1&query=${Uri.encode(location)}"
+                                                )
+                                            )
+                                        )
+                                    } catch (exception: ActivityNotFoundException) {
+                                        viewModel.showToast("No se encontró una aplicación para ver la ubicación.")
+                                    }
+                                }
                             ) {
                                 Text(
-                                    text = heroClass.piso,
+                                    text = "Ver ubicación · ${heroClass.piso}",
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         color = ForestPrimary,
                                         fontWeight = FontWeight.Bold
@@ -574,7 +650,7 @@ fun AgendaScreen(
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
+                                    contentDescription = "Ver ubicación en el mapa",
                                     tint = ForestPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -584,7 +660,7 @@ fun AgendaScreen(
                 }
             }
 
-            // Section: Clases restantes de hoy
+            // Other classes scheduled for the selected day.
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -592,14 +668,14 @@ fun AgendaScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Clases restantes de hoy",
+                        text = "Otras clases del ${selectedDay.lowercase(Locale.forLanguageTag("es-CO"))}",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = ForestPrimary
                         )
                     )
                     Text(
-                        text = "${remainingClasses.size} pendientes",
+                        text = "${remainingClasses.size} más",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = ForestOnSurfaceVariant
                         )
@@ -616,7 +692,7 @@ fun AgendaScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No hay más clases programadas para este día.",
+                            text = "No hay otras clases programadas para este día.",
                             style = MaterialTheme.typography.bodyMedium.copy(color = ForestOnSurfaceVariant)
                         )
                     }
@@ -624,6 +700,7 @@ fun AgendaScreen(
                     remainingClasses.forEach { clase ->
                         ClassItemCard(
                             clase = clase,
+                            onEdit = { beginEditingClass(clase) },
                             onDelete = { viewModel.deleteClass(clase.id) }
                         )
                     }
@@ -632,7 +709,22 @@ fun AgendaScreen(
 
             // Action: + Agregar nueva materia/clase
             Button(
-                onClick = { showAddDrawer = !showAddDrawer },
+                onClick = {
+                    if (showAddDrawer) {
+                        editingClass = null
+                        showAddDrawer = false
+                    } else {
+                        editingClass = null
+                        showAddDrawer = true
+                        newClassName = ""
+                        newClassDay = selectedDay
+                        newClassAula = ""
+                        newClassStart = "08:00 AM"
+                        newClassEnd = "10:00 AM"
+                        newClassProf = ""
+                        newClassMinutesBefore = "15"
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ForestPrimaryContainer,
                     contentColor = ForestOnPrimary
@@ -693,7 +785,7 @@ fun AgendaScreen(
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Nueva Materia",
+                                    text = if (editingClass == null) "Nueva Materia" else "Editar materia",
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = ForestPrimary
@@ -719,6 +811,15 @@ fun AgendaScreen(
                             onValueChange = { newClassName = it },
                             label = { Text("Nombre de la materia") },
                             placeholder = { Text("Ej. Algoritmos Avanzados") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = newClassMinutesBefore,
+                            onValueChange = { newClassMinutesBefore = it.filter(Char::isDigit) },
+                            label = { Text("Avisar antes (minutos)") },
                             singleLine = true,
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -794,28 +895,60 @@ fun AgendaScreen(
                             }
                             Button(
                                 onClick = {
-                                    viewModel.addClass(
-                                        titulo = newClassName,
-                                        dia = newClassDay,
-                                        horaInicio = newClassStart,
-                                        horaFin = newClassEnd,
-                                        aula = newClassAula,
-                                        profesor = newClassProf,
-                                        facultad = newClassFacultad,
-                                        modalidad = newClassModalidad,
-                                        onSuccess = {
-                                            newClassName = ""
-                                            newClassAula = ""
-                                            newClassProf = ""
-                                            showAddDrawer = false
-                                        }
-                                    )
+                                    val minutesBefore = newClassMinutesBefore.toIntOrNull()
+                                    if (minutesBefore == null || minutesBefore !in 0..10080) {
+                                        viewModel.showToast("Ingresa un aviso entre 0 y 10080 minutos.")
+                                        return@Button
+                                    }
+                                    requestNotificationPermission()
+                                    val onSuccess = {
+                                        editingClass = null
+                                        newClassName = ""
+                                        newClassAula = ""
+                                        newClassProf = ""
+                                        newClassMinutesBefore = "15"
+                                        showAddDrawer = false
+                                    }
+                                    val existingClass = editingClass
+                                    if (existingClass == null) {
+                                        viewModel.addClass(
+                                            titulo = newClassName,
+                                            dia = newClassDay,
+                                            horaInicio = newClassStart,
+                                            horaFin = newClassEnd,
+                                            aula = newClassAula,
+                                            profesor = newClassProf,
+                                            facultad = newClassFacultad,
+                                            modalidad = newClassModalidad,
+                                            minutesBefore = minutesBefore,
+                                            onSuccess = onSuccess
+                                        )
+                                    } else {
+                                        viewModel.updateClass(
+                                            existingClass.copy(
+                                                titulo = newClassName,
+                                                diaSemana = newClassDay,
+                                                horaInicio = newClassStart,
+                                                horaFin = newClassEnd,
+                                                aula = newClassAula,
+                                                grupoOProfesor = newClassProf,
+                                                facultad = newClassFacultad,
+                                                modalidad = newClassModalidad,
+                                                notificarMinutosAntes = minutesBefore
+                                            ),
+                                            onSuccess
+                                        )
+                                    }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = ForestPrimaryContainer),
                                 shape = RoundedCornerShape(9999.dp),
                                 modifier = Modifier.weight(1f).height(44.dp)
                             ) {
-                                Text("Guardar materia", color = ForestOnPrimary, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (editingClass == null) "Guardar materia" else "Guardar cambios",
+                                    color = ForestOnPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -850,14 +983,14 @@ fun AgendaScreen(
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Ventana libre de 2 horas",
+                            text = "Tu semana, bajo control",
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = ForestPrimary
                             )
                         )
                         Text(
-                            text = "Entre clases tienes tiempo para almorzar e hidratarte en el campus.",
+                            text = "Activa los avisos para llegar a tiempo a tus clases y actividades.",
                             style = MaterialTheme.typography.bodySmall.copy(color = ForestOnSurfaceVariant),
                             maxLines = 2
                         )
@@ -872,11 +1005,42 @@ fun AgendaScreen(
             onNavigate = { viewModel.navigateTo(it) }
         )
     }
+
+    taggingClass?.let { clase ->
+        val labels = listOf("CLASE", "PARCIAL", "ENTREGA", "ACTIVIDAD")
+        AlertDialog(
+            onDismissRequest = { taggingClass = null },
+            title = { Text("Etiqueta de ${clase.titulo}") },
+            text = {
+                Column {
+                    labels.forEach { label ->
+                        TextButton(
+                            onClick = {
+                                viewModel.updateClass(clase.copy(tipo = label)) {
+                                    taggingClass = null
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = clase.tipo != label
+                        ) {
+                            Text(label.lowercase(Locale.forLanguageTag("es-CO")).replaceFirstChar(Char::uppercase))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { taggingClass = null }) {
+                    Text("Cerrar")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 fun ClassItemCard(
     clase: Recordatorio,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     val icon = if (clase.facultad == "Sistemas") Icons.Default.Terminal else Icons.Default.AccountBalance
@@ -920,7 +1084,7 @@ fun ClassItemCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = clase.facultad,
+                                text = clase.tipo.lowercase(Locale.forLanguageTag("es-CO")).replaceFirstChar(Char::uppercase),
                                 style = MaterialTheme.typography.labelSmall.copy(color = ForestOnSurfaceVariant)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -960,7 +1124,7 @@ fun ClassItemCard(
                 // Mini Action Buttons: Edit and Delete
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Surface(
-                        onClick = { /* edit */ },
+                        onClick = onEdit,
                         shape = CircleShape,
                         color = ForestSurfaceContainer,
                         modifier = Modifier.size(32.dp)

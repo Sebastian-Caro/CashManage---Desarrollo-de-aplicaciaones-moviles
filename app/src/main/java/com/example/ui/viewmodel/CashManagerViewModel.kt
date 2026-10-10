@@ -12,6 +12,8 @@ import com.example.data.model.Notificacion
 import com.example.data.model.Presupuesto
 import com.example.data.model.Recordatorio
 import com.example.data.model.Usuario
+import com.example.notifications.ClassReminderScheduler
+import com.example.utils.ClassReminderTime
 import com.example.utils.PasswordValidator
 import com.example.utils.PasswordHasher
 import com.example.utils.SemesterUtils
@@ -39,7 +41,10 @@ enum class AppScreen {
     ACCOUNT
 }
 
-class CashManagerViewModel(private val repository: AppRepository) : ViewModel() {
+class CashManagerViewModel(
+    private val repository: AppRepository,
+    private val reminderScheduler: ClassReminderScheduler
+) : ViewModel() {
 
     // Current navigation screen
     private val _currentScreen = MutableStateFlow(AppScreen.LOGIN)
@@ -116,6 +121,11 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
         // Observe login state
         viewModelScope.launch {
             repository.activeUsuario.collect { user ->
+                if (user == null) {
+                    reminderScheduler.cancelAll()
+                } else {
+                    reminderScheduler.replaceAll(repository.getActiveRecordatoriosOnce(user.id))
+                }
                 if (user == null && _currentScreen.value != AppScreen.LOGIN) {
                     _currentScreen.value = AppScreen.LOGIN
                 } else if (user != null && _currentScreen.value == AppScreen.LOGIN) {
@@ -192,6 +202,7 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
                 }
                 repository.ensureUserDefaults(existing.id)
                 repository.loginUser(existing.id)
+                reminderScheduler.replaceAll(repository.getActiveRecordatoriosOnce(existing.id))
                 _currentScreen.value = AppScreen.HOME
                 onResult(true, null)
             } else {
@@ -241,6 +252,7 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
             )
             repository.ensureUserDefaults(newId)
             repository.loginUser(newId)
+            reminderScheduler.replaceAll(repository.getActiveRecordatoriosOnce(newId))
             _currentScreen.value = AppScreen.HOME
             onResult(true, null)
         }
@@ -249,6 +261,7 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
     fun logout() {
         viewModelScope.launch {
             repository.logout()
+            reminderScheduler.cancelAll()
             backStack.clear()
             _currentScreen.value = AppScreen.LOGIN
         }
@@ -428,12 +441,17 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
         profesor: String = "Profesor Titular",
         facultad: String = "Facultad",
         modalidad: String = "Teórica",
+        minutesBefore: Int = 15,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
             val userId = requireActiveUserId() ?: return@launch
             if (titulo.isBlank()) {
                 showToast("El nombre de la materia es requerido")
+                return@launch
+            }
+            if (!ClassReminderTime.isValid(dia, horaInicio, minutesBefore)) {
+                showToast("Revisa el día y la hora. Usa el formato 08:00 AM.")
                 return@launch
             }
             val recordatorio = Recordatorio(
@@ -446,10 +464,15 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
                 grupoOProfesor = if (profesor.isNotBlank()) profesor.trim() else "Grupo Activo",
                 facultad = facultad,
                 modalidad = modalidad,
-                notificarMinutosAntes = 15,
+                notificarMinutosAntes = minutesBefore,
                 usuarioId = userId
             )
-            repository.insertRecordatorio(recordatorio, userId)
+            val reminderId = repository.insertRecordatorio(recordatorio, userId)
+            if (!reminderScheduler.schedule(recordatorio.copy(id = reminderId))) {
+                repository.deleteRecordatorio(reminderId, userId)
+                showToast("La materia no se pudo programar. Revisa los permisos de notificación.")
+                return@launch
+            }
             repository.insertNotificacion(
                 Notificacion(
                     titulo = "Nueva materia agendada",
@@ -464,10 +487,50 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
         }
     }
 
+    fun updateClass(recordatorio: Recordatorio, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val userId = requireActiveUserId() ?: return@launch
+            if (recordatorio.titulo.isBlank()) {
+                showToast("El nombre de la materia es requerido")
+                return@launch
+            }
+            if (!ClassReminderTime.isValid(
+                    recordatorio.diaSemana,
+                    recordatorio.horaInicio,
+                    recordatorio.notificarMinutosAntes
+                )
+            ) {
+                showToast("Revisa el día y la hora. Usa el formato 08:00 AM.")
+                return@launch
+            }
+            val updated = recordatorio.copy(
+                titulo = recordatorio.titulo.trim(),
+                usuarioId = userId
+            )
+            val previous = repository.getActiveRecordatoriosOnce(userId)
+                .firstOrNull { it.id == updated.id }
+            repository.updateRecordatorio(updated, userId)
+            val scheduled = if (updated.activo) {
+                reminderScheduler.schedule(updated)
+            } else {
+                reminderScheduler.cancel(updated.id)
+                true
+            }
+            if (!scheduled) {
+                previous?.let { repository.updateRecordatorio(it, userId) }
+                showToast("No se pudieron guardar los cambios del recordatorio.")
+                return@launch
+            }
+            showToast("Materia actualizada")
+            onSuccess()
+        }
+    }
+
     fun deleteClass(id: Long) {
         viewModelScope.launch {
             val userId = requireActiveUserId() ?: return@launch
             repository.deleteRecordatorio(id, userId)
+            reminderScheduler.cancel(id)
             showToast("Materia eliminada del horario")
         }
     }
@@ -554,11 +617,14 @@ class CashManagerViewModel(private val repository: AppRepository) : ViewModel() 
     }
 }
 
-class CashManagerViewModelFactory(private val repository: AppRepository) : ViewModelProvider.Factory {
+class CashManagerViewModelFactory(
+    private val repository: AppRepository,
+    private val reminderScheduler: ClassReminderScheduler
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CashManagerViewModel::class.java)) {
-            return CashManagerViewModel(repository) as T
+            return CashManagerViewModel(repository, reminderScheduler) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

@@ -31,6 +31,9 @@ interface AppDao {
     @Query("SELECT * FROM usuario WHERE isLoggedIn = 1 LIMIT 1")
     fun getActiveUsuario(): Flow<Usuario?>
 
+    @Query("SELECT * FROM usuario WHERE isLoggedIn = 1 LIMIT 1")
+    suspend fun getActiveUsuarioOnce(): Usuario?
+
     @Query("SELECT * FROM usuario WHERE correo = :correo LIMIT 1")
     suspend fun getUsuarioByCorreo(correo: String): Usuario?
 
@@ -234,6 +237,9 @@ interface AppDao {
     // --- Recordatorios / Clases ---
     @Query("SELECT * FROM recordatorio WHERE usuarioId = :usuarioId ORDER BY id ASC")
     fun getAllRecordatorios(usuarioId: Long): Flow<List<Recordatorio>>
+
+    @Query("SELECT * FROM recordatorio WHERE usuarioId = :usuarioId AND activo = 1 ORDER BY id ASC")
+    suspend fun getActiveRecordatoriosOnce(usuarioId: Long): List<Recordatorio>
 
     @Query("SELECT * FROM recordatorio WHERE diaSemana = :diaSemana AND usuarioId = :usuarioId ORDER BY id ASC")
     fun getRecordatoriosByDia(diaSemana: String, usuarioId: Long): Flow<List<Recordatorio>>

@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppDatabase
 import com.example.data.AppRepository
+import com.example.data.model.Recordatorio
+import com.example.notifications.ClassReminderScheduler
 import com.example.ui.viewmodel.CashManagerViewModel
 import com.example.utils.PasswordHasher
 import com.example.utils.SemesterUtils
@@ -38,6 +40,7 @@ class ViewModelAuthTest {
     private lateinit var db: AppDatabase
     private lateinit var repository: AppRepository
     private lateinit var viewModel: CashManagerViewModel
+    private val reminderScheduler = TestReminderScheduler()
     private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -48,7 +51,7 @@ class ViewModelAuthTest {
             .allowMainThreadQueries()
             .build()
         repository = AppRepository(db.appDao())
-        viewModel = CashManagerViewModel(repository)
+        viewModel = CashManagerViewModel(repository, reminderScheduler)
         ShadowLooper.idleMainLooper()
     }
 
@@ -254,5 +257,54 @@ class ViewModelAuthTest {
         }
 
         assertNull(activeUser)
+    }
+
+    @Test
+    fun `adding a class persists it and schedules its reminder`() = runTest {
+        val registration = CompletableDeferred<Pair<Boolean, String?>>()
+        viewModel.register("Valeria Montes", "valeria@unal.edu.co", "Valeria2026") { success, message ->
+            registration.complete(success to message)
+        }
+        assertTrue(registration.await().first)
+
+        val added = CompletableDeferred<Unit>()
+        viewModel.addClass(
+            titulo = "Cálculo",
+            dia = "Lunes",
+            horaInicio = "08:00 AM",
+            horaFin = "10:00 AM",
+            aula = "Aula 102",
+            minutesBefore = 20
+        ) { added.complete(Unit) }
+        added.await()
+
+        val activeUser = repository.activeUsuario.first()!!
+        val saved = repository.getActiveRecordatoriosOnce(activeUser.id).single()
+        assertEquals("Cálculo", saved.titulo)
+        assertEquals(20, saved.notificarMinutosAntes)
+        assertEquals(saved, reminderScheduler.scheduled.single())
+    }
+
+    private class TestReminderScheduler : ClassReminderScheduler {
+        val scheduled = mutableListOf<Recordatorio>()
+
+        override fun schedule(recordatorio: Recordatorio): Boolean {
+            scheduled.removeAll { it.id == recordatorio.id }
+            scheduled += recordatorio
+            return true
+        }
+
+        override fun cancel(id: Long) {
+            scheduled.removeAll { it.id == id }
+        }
+
+        override fun replaceAll(recordatorios: List<Recordatorio>) {
+            scheduled.clear()
+            scheduled.addAll(recordatorios)
+        }
+
+        override fun cancelAll() {
+            scheduled.clear()
+        }
     }
 }

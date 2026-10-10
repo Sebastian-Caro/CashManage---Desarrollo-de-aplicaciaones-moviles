@@ -18,6 +18,8 @@ class AppRepository(private val dao: AppDao) {
 
     val activeUsuario: Flow<Usuario?> = dao.getActiveUsuario()
 
+    suspend fun getActiveUsuarioOnce(): Usuario? = dao.getActiveUsuarioOnce()
+
     suspend fun getUsuarioByCorreo(correo: String): Usuario? = dao.getUsuarioByCorreo(correo)
 
     suspend fun insertUsuario(usuario: Usuario): Long = dao.insertUsuario(usuario)
@@ -120,6 +122,9 @@ class AppRepository(private val dao: AppDao) {
     val allRecordatorios: Flow<List<Recordatorio>> = activeUsuario.flatMapLatest { user ->
         user?.let { dao.getAllRecordatorios(it.id) } ?: flowOf(emptyList())
     }
+
+    suspend fun getActiveRecordatoriosOnce(usuarioId: Long): List<Recordatorio> =
+        dao.getActiveRecordatoriosOnce(usuarioId)
 
     fun getRecordatoriosByDia(dia: String): Flow<List<Recordatorio>> =
         activeUsuario.flatMapLatest { user ->

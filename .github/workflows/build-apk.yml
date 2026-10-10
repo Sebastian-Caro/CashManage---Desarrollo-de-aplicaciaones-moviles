@@ -24,9 +24,15 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+          packages: ""
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
 
       - name: Install Android SDK platform
-        run: sdkmanager "platforms;android-36-ext1" "platform-tools"
+        run: sdkmanager --install "platforms;android-36-ext1" "platform-tools"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
